@@ -9,7 +9,7 @@ Follow this workflow to produce reliable GOES animations.
 3. Validate frame count, sort order, and image dimensions.
 4. Render GIF with a clear frame rate and loop setting.
 5. Return output path and quick summary (source, frame count, fps, duration).
-6. Post both GIFs to Discord channel `1494094633142194176` with a message that includes the current date and time.
+6. Post both GIFs to Discord channel `Your Channel` with a message that includes the current date and time.
 
 ## Source selection
 
