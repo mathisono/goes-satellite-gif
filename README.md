@@ -96,7 +96,22 @@ Always include:
 
 This repository includes `goes_satellite_gif.py` to automate the fetch + render flow.
 
-Run:
+### Quick usage example
+
+Run a fast single-stream smoke run:
+
+```bash
+python3 goes_satellite_gif.py --stream full-disk --frames 3 --fps 2
+```
+
+Sample output:
+
+```text
+Run root: /home/bill/.openclaw/artifacts/noaa/2026-04-30/run-1421
+- full-disk: /home/bill/.openclaw/artifacts/noaa/2026-04-30/run-1421/goes18-full-disk-geocolor.gif | frames=3 | fps=2 | duration=1.5s | invalid=0 | renderer=pillow
+```
+
+Full default run (both streams):
 
 ```bash
 python3 goes_satellite_gif.py --stream both --fps 8
