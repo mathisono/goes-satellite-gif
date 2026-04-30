@@ -49,7 +49,7 @@ If the user asks for side-by-side comparison, build a combined canvas first, the
 
 ## Output placement
 
-- Put run artifacts under: `/home/bill/.openclaw/artifacts/noaa/YYYY-MM-DD/run-HHMM/`
+- Put run artifacts under: `/home/UsEr/.openclaw/artifacts/noaa/YYYY-MM-DD/run-HHMM/`
 - Keep frame folders:
   - `full-disk/` for full-disk frames
   - `wus/` for WUS frames
@@ -58,18 +58,18 @@ If the user asks for side-by-side comparison, build a combined canvas first, the
   - `goes18-wus-geocolor.gif`
 
 Example output from a successful run:
-- `/home/bill/.openclaw/artifacts/noaa/2026-04-29/run-2331/goes18-full-disk-geocolor.gif`
-- `/home/bill/.openclaw/artifacts/noaa/2026-04-29/run-2331/goes18-wus-geocolor.gif`
+- `/home/UsEr/.openclaw/artifacts/noaa/2026-04-29/run-2331/goes18-full-disk-geocolor.gif`
+- `/home/UsEr/.openclaw/artifacts/noaa/2026-04-29/run-2331/goes18-wus-geocolor.gif`
 
 ## Discord posting step (final)
 
-After GIFs are generated, post both files to Discord channel `1494094633142194176`.
+After GIFs are generated, post both files to Discord channel `Your Channel`.
 
 Message format:
 - Include the current date/time in the text, for example: `GOES update — Thu 2026-04-30 00:11 PDT`.
 
 CLI pattern (preferred single post):
-- `openclaw message send --channel discord --target channel:1494094633142194176 --message "GOES update — <current date/time>" --media <full-disk-gif-path> --media <wus-gif-path>`
+- `openclaw message send --channel discord --target channel:Your Channel --message "GOES update — <current date/time>" --media <full-disk-gif-path> --media <wus-gif-path>`
 
 If upload fails with payload/size limits:
 - Create Discord-ready derivatives (resize, reduce colors, reduce FPS/frame count).
@@ -77,7 +77,7 @@ If upload fails with payload/size limits:
 
 Verification:
 - Run `openclaw channels status --deep`.
-- Run `openclaw message read --channel discord --target channel:1494094633142194176 --limit 10 --json`.
+- Run `openclaw message read --channel discord --target channel:Your Channel --limit 10 --json`.
 - Confirm both filenames appear in recent messages:
   - `goes18-full-disk...gif`
   - `goes18-wus...gif`
@@ -107,8 +107,8 @@ python3 goes_satellite_gif.py --stream full-disk --frames 3 --fps 2
 Sample output:
 
 ```text
-Run root: /home/bill/.openclaw/artifacts/noaa/2026-04-30/run-1421
-- full-disk: /home/bill/.openclaw/artifacts/noaa/2026-04-30/run-1421/goes18-full-disk-geocolor.gif | frames=3 | fps=2 | duration=1.5s | invalid=0 | renderer=pillow
+Run root: /home/UsEr/.openclaw/artifacts/noaa/2026-04-30/run-1421
+- full-disk: /home/UsEr/.openclaw/artifacts/noaa/2026-04-30/run-1421/goes18-full-disk-geocolor.gif | frames=3 | fps=2 | duration=1.5s | invalid=0 | renderer=pillow
 ```
 
 Full default run (both streams):
