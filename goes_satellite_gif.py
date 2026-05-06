@@ -11,6 +11,7 @@ Uses ffmpeg palette workflow when available; otherwise falls back to Pillow.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import datetime as dt
 import os
 import pathlib
@@ -88,10 +89,10 @@ def download_frames(frame_urls: List[str], dst_dir: pathlib.Path) -> List[pathli
     return files
 
 
-def validate_frames(files: List[pathlib.Path]) -> tuple[int, tuple[int, int] | None, int]:
+def validate_frames(files: List[pathlib.Path], auto_drop_mismatch: bool = False) -> tuple[List[pathlib.Path], tuple[int, int] | None, int, int]:
     from PIL import Image
 
-    dims = None
+    valid: List[tuple[pathlib.Path, tuple[int, int]]] = []
     invalid = 0
     for p in files:
         try:
@@ -100,23 +101,78 @@ def validate_frames(files: List[pathlib.Path]) -> tuple[int, tuple[int, int] | N
         except Exception:
             invalid += 1
             continue
-        if dims is None:
-            dims = size
-        elif dims != size:
-            raise RuntimeError(f"Dimension mismatch: {p} has {size}, expected {dims}")
-    return len(files), dims, invalid
+        valid.append((p, size))
+
+    if not valid:
+        raise RuntimeError("No readable frames found")
+
+    if not auto_drop_mismatch:
+        dims = valid[0][1]
+        for p, size in valid[1:]:
+            if dims != size:
+                raise RuntimeError(f"Dimension mismatch: {p} has {size}, expected {dims}")
+        return [p for p, _ in valid], dims, invalid, 0
+
+    dims = Counter(size for _, size in valid).most_common(1)[0][0]
+    kept: List[pathlib.Path] = []
+    dropped = 0
+    for p, size in valid:
+        if size == dims:
+            kept.append(p)
+        else:
+            dropped += 1
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
+    if not kept:
+        raise RuntimeError("All readable frames were dropped due to dimension mismatch")
+
+    if dropped:
+        print(f"warning: auto-dropped {dropped} frame(s) with mismatched dimensions (kept {len(kept)} at {dims})", file=sys.stderr)
+
+    return kept, dims, invalid, dropped
+
+
+def normalize_frame_sequence(frame_dir: pathlib.Path, kept_files: List[pathlib.Path]) -> List[pathlib.Path]:
+    if not kept_files:
+        return []
+
+    suffix = kept_files[0].suffix.lower() or ".jpg"
+    normalized: List[pathlib.Path] = []
+    for i, src in enumerate(kept_files, start=1):
+        dst = frame_dir / f"frame-{i:04d}{suffix}"
+        if src != dst:
+            dst.write_bytes(src.read_bytes())
+            try:
+                src.unlink()
+            except Exception:
+                pass
+        normalized.append(dst)
+
+    keep_names = {p.name for p in normalized}
+    for p in frame_dir.glob("frame-*"):
+        if p.name not in keep_names:
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
+    return normalized
 
 
 def ffmpeg_available() -> bool:
     return subprocess.call(["bash", "-lc", "command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
 
 
-def render_gif_ffmpeg(frame_dir: pathlib.Path, out_gif: pathlib.Path, fps: int) -> None:
+def render_gif_ffmpeg(frame_files: List[pathlib.Path], out_gif: pathlib.Path, fps: int) -> None:
+    if not frame_files:
+        raise RuntimeError("No frames to render")
+
+    frame_dir = frame_files[0].parent
     palette = frame_dir / "palette.png"
-    glob_in = str(frame_dir / "frame-%04d.jpg")
-    # if jpg pattern has no matches, detect ext from first frame
-    first = sorted(frame_dir.glob("frame-*"))[0]
-    glob_in = str(frame_dir / f"frame-%04d{first.suffix.lower()}")
+    glob_in = str(frame_dir / f"frame-%04d{frame_files[0].suffix.lower()}")
 
     subprocess.check_call([
         "ffmpeg", "-y", "-framerate", str(fps), "-i", glob_in,
@@ -165,14 +221,16 @@ def run_stream(stream: StreamConfig, run_root: pathlib.Path, fps: int, override_
     stream_dir = run_root / stream.name
     ensure_dir(stream_dir)
     files = download_frames(chosen, stream_dir)
-    count, dims, invalid = validate_frames(files)
+    kept_files, dims, invalid, dropped_mismatch = validate_frames(files, auto_drop_mismatch=(stream.name == "wus"))
+    kept_files = normalize_frame_sequence(stream_dir, kept_files)
+    count = len(kept_files)
 
     out_gif = run_root / stream.out_name
     renderer = "ffmpeg" if ffmpeg_available() else "pillow"
     if renderer == "ffmpeg":
-        render_gif_ffmpeg(stream_dir, out_gif, fps)
+        render_gif_ffmpeg(kept_files, out_gif, fps)
     else:
-        render_gif_pillow(files, out_gif, fps)
+        render_gif_pillow(kept_files, out_gif, fps)
 
     duration = round(count / fps, 2) if fps else 0
     return {
@@ -181,6 +239,7 @@ def run_stream(stream: StreamConfig, run_root: pathlib.Path, fps: int, override_
         "frames": count,
         "dimensions": dims,
         "invalid": invalid,
+        "dropped_mismatch": dropped_mismatch,
         "fps": fps,
         "duration_s": duration,
         "renderer": renderer,
@@ -214,7 +273,7 @@ def main() -> int:
     for s in summaries:
         print(
             f"- {s['stream']}: {s['output']} | frames={s['frames']} | fps={s['fps']} | "
-            f"duration={s['duration_s']}s | invalid={s['invalid']} | renderer={s['renderer']}"
+            f"duration={s['duration_s']}s | invalid={s['invalid']} | dropped={s['dropped_mismatch']} | renderer={s['renderer']}"
         )
     return 0
 
