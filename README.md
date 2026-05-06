@@ -11,6 +11,23 @@ Follow this workflow to produce reliable GOES animations.
 5. Return output path and quick summary (source, frame count, fps, duration).
 6. Post both GIFs to Discord channel `Your Channel` with a message that includes the current date and time.
 
+## OpenClaw install prompt
+
+Paste this into OpenClaw to install and smoke-test this skill:
+
+```text
+Install the GOES Satellite GIF skill on this Linux OpenClaw host.
+
+Tasks:
+1. Clone or update https://github.com/mathisono/goes-satellite-gif under my OpenClaw skills or tools workspace.
+2. Install required system packages: python3, python3-pil, ffmpeg, and git.
+3. Run a smoke test: python3 goes_satellite_gif.py --stream full-disk --frames 3 --fps 2
+4. Confirm the output lands under ~/.openclaw/artifacts/noaa/YYYY-MM-DD/run-HHMM/.
+5. Report the final GIF path, renderer used, frame count, and any errors.
+
+Do not change OpenClaw global config unless needed. If a dependency or permission fails, stop and show the exact command and error.
+```
+
 ## Source selection
 
 Use the canonical NOAA STAR pages from `references/goes-sources.md` unless the user provides replacements.
@@ -49,7 +66,7 @@ If the user asks for side-by-side comparison, build a combined canvas first, the
 
 ## Output placement
 
-- Put run artifacts under: `/home/UsEr/.openclaw/artifacts/noaa/YYYY-MM-DD/run-HHMM/`
+- Put run artifacts under: `~/.openclaw/artifacts/noaa/YYYY-MM-DD/run-HHMM/`
 - Keep frame folders:
   - `full-disk/` for full-disk frames
   - `wus/` for WUS frames
@@ -58,8 +75,8 @@ If the user asks for side-by-side comparison, build a combined canvas first, the
   - `goes18-wus-geocolor.gif`
 
 Example output from a successful run:
-- `/home/UsEr/.openclaw/artifacts/noaa/2026-04-29/run-2331/goes18-full-disk-geocolor.gif`
-- `/home/UsEr/.openclaw/artifacts/noaa/2026-04-29/run-2331/goes18-wus-geocolor.gif`
+- `~/.openclaw/artifacts/noaa/2026-04-29/run-2331/goes18-full-disk-geocolor.gif`
+- `~/.openclaw/artifacts/noaa/2026-04-29/run-2331/goes18-wus-geocolor.gif`
 
 ## Discord posting step (final)
 
@@ -107,8 +124,8 @@ python3 goes_satellite_gif.py --stream full-disk --frames 3 --fps 2
 Sample output:
 
 ```text
-Run root: /home/UsEr/.openclaw/artifacts/noaa/2026-04-30/run-1421
-- full-disk: /home/UsEr/.openclaw/artifacts/noaa/2026-04-30/run-1421/goes18-full-disk-geocolor.gif | frames=3 | fps=2 | duration=1.5s | invalid=0 | renderer=pillow
+Run root: ~/.openclaw/artifacts/noaa/2026-04-30/run-1421
+- full-disk: ~/.openclaw/artifacts/noaa/2026-04-30/run-1421/goes18-full-disk-geocolor.gif | frames=3 | fps=2 | duration=1.5s | invalid=0 | renderer=pillow
 ```
 
 Full default run (both streams):
