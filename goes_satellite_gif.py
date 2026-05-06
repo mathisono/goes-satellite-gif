@@ -190,7 +190,11 @@ def run_stream(stream: StreamConfig, run_root: pathlib.Path, fps: int, override_
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build GOES-18 GeoColor GIFs from NOAA STAR pages")
-    parser.add_argument("--output-root", default="/home/bill/.openclaw/artifacts/noaa", help="Base output directory")
+    parser.add_argument(
+        "--output-root",
+        default=str(pathlib.Path.home() / ".openclaw" / "artifacts" / "noaa"),
+        help="Base output directory",
+    )
     parser.add_argument("--fps", type=int, default=8, help="GIF frame rate")
     parser.add_argument("--frames", type=int, default=None, help="Override frame count for both streams")
     parser.add_argument("--stream", choices=["full-disk", "wus", "both"], default="both", help="Which stream to render")
