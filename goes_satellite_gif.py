@@ -35,11 +35,13 @@ class StreamConfig:
     source_url: str
     expected_frames: int
     out_name: str
+    stream_token: str
+    preferred_width: int | None = None
 
 
 STREAMS = [
-    StreamConfig("full-disk", DEFAULT_FULL_DISK, 36, "goes18-full-disk-geocolor.gif"),
-    StreamConfig("wus", DEFAULT_WUS, 48, "goes18-wus-geocolor.gif"),
+    StreamConfig("full-disk", DEFAULT_FULL_DISK, 36, "goes18-full-disk-geocolor.gif", "/abi/fd/geocolor/"),
+    StreamConfig("wus", DEFAULT_WUS, 48, "goes18-wus-geocolor.gif", "/abi/sector/wus/geocolor/", 1000),
 ]
 
 
@@ -59,15 +61,50 @@ def parse_image_urls(page_url: str, html: str) -> List[str]:
     return sorted(urls)
 
 
-def filter_goes_frames(urls: Iterable[str]) -> List[str]:
+def filter_stream_frames(urls: Iterable[str], stream: StreamConfig) -> List[str]:
     framey = []
     for u in urls:
         low = u.lower()
-        if any(k in low for k in ["/goes", "geocolor", "abi", "wus", "fd/"]):
+        if stream.stream_token in low and "geocolor" in low:
             framey.append(u)
     if framey:
         return framey
-    return list(urls)
+    # Fallback to prior broad behavior if NOAA markup changes unexpectedly.
+    broad = []
+    for u in urls:
+        low = u.lower()
+        if any(k in low for k in ["/goes", "geocolor", "abi", "wus", "fd/"]):
+            broad.append(u)
+    return broad or list(urls)
+
+
+FRAME_META_PATTERN = re.compile(r"(?P<ts>\d{10,})_[^/]*-(?P<w>\d+)x(?P<h>\d+)\.(?:jpg|jpeg|png|gif)$", re.IGNORECASE)
+
+
+def pick_latest_unique(urls: List[str], n: int, preferred_width: int | None = None) -> List[str]:
+    # Keep one frame per timestamp (prevents pulling duplicate sector variants like 1000x1000 + 2000x2000).
+    grouped: dict[str, list[tuple[str, int]]] = {}
+    for u in urls:
+        m = FRAME_META_PATTERN.search(urllib.parse.urlparse(u).path)
+        if not m:
+            continue
+        ts = m.group("ts")
+        w = int(m.group("w"))
+        grouped.setdefault(ts, []).append((u, w))
+
+    if not grouped:
+        return pick_latest(urls, n)
+
+    chosen: list[tuple[str, str]] = []
+    for ts in sorted(grouped.keys()):
+        options = grouped[ts]
+        if preferred_width is None:
+            url = sorted(options, key=lambda t: t[1], reverse=True)[0][0]
+        else:
+            url = sorted(options, key=lambda t: (abs(t[1] - preferred_width), t[1]))[0][0]
+        chosen.append((ts, url))
+
+    return [u for _, u in chosen][-n:]
 
 
 def pick_latest(urls: List[str], n: int) -> List[str]:
@@ -89,7 +126,7 @@ def download_frames(frame_urls: List[str], dst_dir: pathlib.Path) -> List[pathli
     return files
 
 
-def validate_frames(files: List[pathlib.Path], auto_drop_mismatch: bool = False) -> tuple[List[pathlib.Path], tuple[int, int] | None, int, int]:
+def validate_frames(files: List[pathlib.Path]) -> tuple[List[pathlib.Path], tuple[int, int] | None, int, int]:
     from PIL import Image
 
     valid: List[tuple[pathlib.Path, tuple[int, int]]] = []
@@ -106,45 +143,27 @@ def validate_frames(files: List[pathlib.Path], auto_drop_mismatch: bool = False)
     if not valid:
         raise RuntimeError("No readable frames found")
 
-    if not auto_drop_mismatch:
-        dims = valid[0][1]
-        for p, size in valid[1:]:
-            if dims != size:
-                raise RuntimeError(f"Dimension mismatch: {p} has {size}, expected {dims}")
-        return [p for p, _ in valid], dims, invalid, 0
-
     dims = Counter(size for _, size in valid).most_common(1)[0][0]
-    kept: List[pathlib.Path] = []
-    dropped = 0
-    for p, size in valid:
-        if size == dims:
-            kept.append(p)
-        else:
-            dropped += 1
-            try:
-                p.unlink()
-            except Exception:
-                pass
-
-    if not kept:
-        raise RuntimeError("All readable frames were dropped due to dimension mismatch")
-
-    if dropped:
-        print(f"warning: auto-dropped {dropped} frame(s) with mismatched dimensions (kept {len(kept)} at {dims})", file=sys.stderr)
-
-    return kept, dims, invalid, dropped
+    mismatched = sum(1 for _, size in valid if size != dims)
+    return [p for p, _ in valid], dims, invalid, mismatched
 
 
-def normalize_frame_sequence(frame_dir: pathlib.Path, kept_files: List[pathlib.Path]) -> List[pathlib.Path]:
+def normalize_frame_sequence(frame_dir: pathlib.Path, kept_files: List[pathlib.Path], target_dims: tuple[int, int]) -> List[pathlib.Path]:
+    from PIL import Image
+
     if not kept_files:
         return []
 
-    suffix = kept_files[0].suffix.lower() or ".jpg"
     normalized: List[pathlib.Path] = []
     for i, src in enumerate(kept_files, start=1):
-        dst = frame_dir / f"frame-{i:04d}{suffix}"
+        dst = frame_dir / f"frame-{i:04d}.jpg"
+        with Image.open(src) as im:
+            if im.size != target_dims:
+                im = im.convert("RGB").resize(target_dims, Image.Resampling.LANCZOS)
+            else:
+                im = im.convert("RGB")
+            im.save(dst, format="JPEG", quality=95, optimize=True)
         if src != dst:
-            dst.write_bytes(src.read_bytes())
             try:
                 src.unlink()
             except Exception:
@@ -162,6 +181,37 @@ def normalize_frame_sequence(frame_dir: pathlib.Path, kept_files: List[pathlib.P
     return normalized
 
 
+def resize_frames(frame_files: List[pathlib.Path], max_width: int | None) -> tuple[List[pathlib.Path], tuple[int, int] | None, int]:
+    from PIL import Image
+
+    if not max_width:
+        dims = None
+        if frame_files:
+            with Image.open(frame_files[0]) as im:
+                dims = im.size
+        return frame_files, dims, 0
+
+    resized: List[pathlib.Path] = []
+    new_dims = None
+    resized_count = 0
+    for p in frame_files:
+        with Image.open(p) as im:
+            w, h = im.size
+            if w > max_width:
+                new_h = max(1, round(h * (max_width / w)))
+                im = im.convert("RGB").resize((max_width, new_h), Image.Resampling.LANCZOS)
+                im.save(p, format="JPEG", quality=88, optimize=True)
+                resized_count += 1
+                new_dims = (max_width, new_h)
+            else:
+                im = im.convert("RGB")
+                im.save(p, format="JPEG", quality=95, optimize=True)
+                new_dims = (w, h)
+        resized.append(p)
+
+    return resized, new_dims, resized_count
+
+
 def ffmpeg_available() -> bool:
     return subprocess.call(["bash", "-lc", "command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
 
@@ -172,7 +222,7 @@ def render_gif_ffmpeg(frame_files: List[pathlib.Path], out_gif: pathlib.Path, fp
 
     frame_dir = frame_files[0].parent
     palette = frame_dir / "palette.png"
-    glob_in = str(frame_dir / f"frame-%04d{frame_files[0].suffix.lower()}")
+    glob_in = str(frame_dir / "frame-%04d.jpg")
 
     subprocess.check_call([
         "ffmpeg", "-y", "-framerate", str(fps), "-i", glob_in,
@@ -211,18 +261,18 @@ def render_gif_pillow(frame_files: List[pathlib.Path], out_gif: pathlib.Path, fp
 def run_stream(stream: StreamConfig, run_root: pathlib.Path, fps: int, override_count: int | None = None) -> dict:
     html = http_get(stream.source_url).decode("utf-8", errors="ignore")
     image_urls = parse_image_urls(stream.source_url, html)
-    frame_pool = filter_goes_frames(image_urls)
+    frame_pool = filter_stream_frames(image_urls, stream)
 
     target_count = override_count or stream.expected_frames
-    chosen = pick_latest(frame_pool, target_count)
+    chosen = pick_latest_unique(frame_pool, target_count, stream.preferred_width)
     if len(chosen) < target_count:
         print(f"warning: {stream.name} expected {target_count} frames but found {len(chosen)}", file=sys.stderr)
 
     stream_dir = run_root / stream.name
     ensure_dir(stream_dir)
     files = download_frames(chosen, stream_dir)
-    kept_files, dims, invalid, dropped_mismatch = validate_frames(files, auto_drop_mismatch=(stream.name == "wus"))
-    kept_files = normalize_frame_sequence(stream_dir, kept_files)
+    kept_files, dims, invalid, mismatched = validate_frames(files)
+    kept_files = normalize_frame_sequence(stream_dir, kept_files, dims)
     count = len(kept_files)
 
     out_gif = run_root / stream.out_name
@@ -239,7 +289,7 @@ def run_stream(stream: StreamConfig, run_root: pathlib.Path, fps: int, override_
         "frames": count,
         "dimensions": dims,
         "invalid": invalid,
-        "dropped_mismatch": dropped_mismatch,
+        "resized_mismatch": mismatched,
         "fps": fps,
         "duration_s": duration,
         "renderer": renderer,
@@ -257,7 +307,15 @@ def main() -> int:
     parser.add_argument("--fps", type=int, default=8, help="GIF frame rate")
     parser.add_argument("--frames", type=int, default=None, help="Override frame count for both streams")
     parser.add_argument("--stream", choices=["full-disk", "wus", "both"], default="both", help="Which stream to render")
+    parser.add_argument("--discord-ready", action="store_true", help="Downscale frames and use lower FPS for Discord delivery")
+    parser.add_argument("--max-width", type=int, default=None, help="Resize frames to this max width before render")
     args = parser.parse_args()
+
+    max_width = args.max_width
+    fps = args.fps
+    if args.discord_ready:
+        max_width = max_width or 320
+        fps = min(fps, 2)
 
     now = dt.datetime.now()
     run_root = pathlib.Path(args.output_root) / now.strftime("%Y-%m-%d") / f"run-{now.strftime('%H%M')}"
@@ -267,13 +325,26 @@ def main() -> int:
 
     summaries = []
     for stream in selected:
-        summaries.append(run_stream(stream, run_root, args.fps, args.frames))
+        summary = run_stream(stream, run_root, fps, args.frames)
+        if max_width:
+            stream_dir = pathlib.Path(summary["output"]).parent / stream.name
+            frames = sorted(stream_dir.glob("frame-*.jpg"))
+            resized_frames, resized_dims, resized_count = resize_frames(frames, max_width)
+            if resized_count:
+                summary["resized_to"] = resized_dims
+                summary["resized_frames"] = resized_count
+            if summary.get("renderer") == "ffmpeg":
+                render_gif_ffmpeg(resized_frames, pathlib.Path(summary["output"]), fps)
+            else:
+                render_gif_pillow(resized_frames, pathlib.Path(summary["output"]), fps)
+        summaries.append(summary)
 
     print(f"Run root: {run_root}")
     for s in summaries:
         print(
             f"- {s['stream']}: {s['output']} | frames={s['frames']} | fps={s['fps']} | "
-            f"duration={s['duration_s']}s | invalid={s['invalid']} | dropped={s['dropped_mismatch']} | renderer={s['renderer']}"
+            f"duration={s['duration_s']}s | invalid={s['invalid']} | resized={s['resized_mismatch']} | renderer={s['renderer']}"
+            + (f" | frame-resized={s.get('resized_frames', 0)} to {s.get('resized_to')}" if s.get('resized_frames') else "")
         )
     return 0
 

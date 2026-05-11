@@ -9,7 +9,7 @@ Follow this workflow to produce reliable GOES animations.
 3. Validate frame count, sort order, and image dimensions.
 4. Render GIF with a clear frame rate and loop setting.
 5. Return output path and quick summary (source, frame count, fps, duration).
-6. Post both GIFs to Discord channel `Your Channel` with a message that includes the current date and time.
+6. Post both GIFs to Discord channel `1494094633142194176` with a message that includes the current date and time.
 
 ## OpenClaw install prompt
 
@@ -42,6 +42,7 @@ Default targets:
 - Keep separate subfolders for each stream (`full-disk/`, `wus/`).
 - Normalize frame names to zero-padded numeric order (`frame-0001.jpg`, ...).
 - Never mix frames from different streams in one render pass.
+- For WUS, keep one frame per timestamp (avoid pulling alternate non-needed variants when NOAA lists multiple resolutions/adjacent products).
 
 ## Validation checks
 
@@ -80,13 +81,15 @@ Example output from a successful run:
 
 ## Discord posting step (final)
 
-After GIFs are generated, post both files to Discord channel `Your Channel`.
+After GIFs are generated, post both files to Discord channel `1494094633142194176`.
 
 Message format:
 - Include the current date/time in the text, for example: `GOES update — Thu 2026-04-30 00:11 PDT`.
 
-CLI pattern (preferred single post):
-- `openclaw message send --channel discord --target channel:Your Channel --message "GOES update — <current date/time>" --media <full-disk-gif-path> --media <wus-gif-path>`
+CLI pattern (known-good):
+- Post one GIF per message for reliability:
+  - `openclaw message send --channel discord --target channel:1494094633142194176 --message "GOES refresh (full-disk) — <current date/time>" --media <full-disk-gif-path>`
+  - `openclaw message send --channel discord --target channel:1494094633142194176 --message "GOES refresh (wus) — <current date/time>" --media <wus-gif-path>`
 
 If upload fails with payload/size limits:
 - Create Discord-ready derivatives (resize, reduce colors, reduce FPS/frame count).
@@ -94,7 +97,7 @@ If upload fails with payload/size limits:
 
 Verification:
 - Run `openclaw channels status --deep`.
-- Run `openclaw message read --channel discord --target channel:Your Channel --limit 10 --json`.
+- Run `openclaw message read --channel discord --target channel:1494094633142194176 --limit 10 --json`.
 - Confirm both filenames appear in recent messages:
   - `goes18-full-disk...gif`
   - `goes18-wus...gif`
